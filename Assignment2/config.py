@@ -6,6 +6,8 @@ class Config:
     The config class is used to store various hyperparameters and dataset
     information parameters. Model objects are passed a Config() object at
     instantiation.
+
+	Create test here.
     """
     img_length = 80
     n_img_features = 4086

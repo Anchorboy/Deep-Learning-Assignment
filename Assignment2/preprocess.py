@@ -25,7 +25,7 @@ class Prepro():
             features_dict[f[:-4]] = features
 
     def load_labels(self, path, split_ratio=0.8):
-        print "load training"
+        print("load training")
         # training labels
         with open(os.path.join(path, "training_label.json")) as f:
             train_label = json.load(f)
@@ -50,7 +50,7 @@ class Prepro():
                 caps += [tok]
             cnt_dict[tid] = caps
 
-        print "counting"
+        print("counting")
         vocabs = cnt.most_common(self.vocab_size - n_res_tok)
         wds, _ = zip(*vocabs)
         for idx, wd in enumerate(wds):
@@ -62,7 +62,7 @@ class Prepro():
 
         train_vid_list = []
         train_cap_list = []
-        for key, cap in cnt_dict.iteritems():
+        for key, cap in cnt_dict.items():
             for sent in cap:
                 s = []
                 for wd in sent:
@@ -137,5 +137,10 @@ def test():
     p = Prepro()
     p.preprocess("a2_data", "test")
 
+def run():
+    p = Prepro()
+    p.preprocess("MLDS_hw2_data", "preprocessed")
+
 if __name__ == "__main__":
-    test()
+    # test()
+    run()

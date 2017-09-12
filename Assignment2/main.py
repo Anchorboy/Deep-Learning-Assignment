@@ -20,12 +20,12 @@ def do_test(args):
     args.mode = "train"
     config = Config(args)
 
-    print " -- loading -- "
+    print(" -- loading -- ")
     data_loader = DataLoader("test")
     config.vocab_size = data_loader.vocab_size
     config.max_length = data_loader.max_length
 
-    print " -- building -- "
+    print(" -- building -- ")
     # train_data, train_labels, train_mask
     with tf.Graph().as_default():
         logger.info("Building model...",)
@@ -45,12 +45,12 @@ def do_train(args):
     args.mode = "train"
     config = Config(args)
 
-    print " -- loading -- "
+    print(" -- loading -- ")
     data_loader = DataLoader("processed")
     config.max_length = data_loader.max_length
     config.vocab_size = data_loader.vocab_size
 
-    print " -- building -- "
+    print(" -- building -- ")
     # train_data, train_labels, train_mask
     with tf.Graph().as_default():
         logger.info("Building model...", )
@@ -70,7 +70,7 @@ def do_evaluate(args):
     args.mode = "test"
     config = Config(args)
 
-    print " -- loading -- "
+    print(" -- loading -- ")
     data_loader = DataLoader("test")
     data_loader.load_and_preprocess_test()
     config.embed_size, pretrained_embeddings = data_loader.load_embedding()

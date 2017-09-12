@@ -5,7 +5,7 @@ import logging
 import numpy as np
 from config import Config
 from os.path import join as pjoin
-import Queue
+import queue
 
 FORMAT = '%(asctime)-15s %(levelname)s:%(message)s'
 logger = logging.getLogger("data_loader")
@@ -76,9 +76,9 @@ class DataLoader:
         """
 
         :param data:
-        :return: (img_slice, vid_slice, cap_slice, mask_slice)
+        :return: (img_slice, cap_slice, mask_slice, vid_slice)
         """
-        q = Queue.Queue()
+        q = queue.Queue()
 
         vid_list = data['id']
         img_list = data['img']
@@ -99,7 +99,7 @@ class DataLoader:
             vid_slice = map(lambda x: vid_list[x], indices)
             cap_slice = map(lambda x: cap_list[x], indices)
             mask_slice = map(lambda x: mask_list[x], indices)
-            q.put((img_slice, vid_slice, cap_slice, mask_slice))
+            q.put((img_slice, cap_slice, mask_slice, vid_slice))
 
             start = cur_end
         return q
@@ -139,7 +139,7 @@ class DataLoader:
 def test():
     data_loader = DataLoader("test")
     train_queue = data_loader.train_queue
-    print train_queue
+    print(train_queue)
     # data_loader.data_queue(data_loader.train_data)
 
 if __name__ == "__main__":

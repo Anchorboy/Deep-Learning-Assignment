@@ -22,10 +22,8 @@ def do_test(args):
 
     print " -- loading -- "
     data_loader = DataLoader("test")
-    data_loader.load_and_preprocess()
-    config.embed_size, pretrained_embeddings = data_loader.load_embedding()
-    config.max_length = data_loader.max_length
     config.vocab_size = data_loader.vocab_size
+    config.max_length = data_loader.max_length
 
     print " -- building -- "
     # train_data, train_labels, train_mask
@@ -49,8 +47,6 @@ def do_train(args):
 
     print " -- loading -- "
     data_loader = DataLoader("processed")
-    data_loader.load_and_preprocess()
-    config.embed_size, pretrained_embeddings = data_loader.load_embedding()
     config.max_length = data_loader.max_length
     config.vocab_size = data_loader.vocab_size
 
@@ -59,7 +55,7 @@ def do_train(args):
     with tf.Graph().as_default():
         logger.info("Building model...", )
         start = time.time()
-        model = RNNModel(config, pretrained_embeddings)
+        model = RNNModel(config)
         logger.info("took %.2f seconds", time.time() - start)
 
         init = tf.global_variables_initializer()

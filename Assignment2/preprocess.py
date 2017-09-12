@@ -3,7 +3,9 @@ import json
 import pickle
 import collections
 import numpy as np
-import tensorflow as tf
+import random
+from config import Config
+# import tensorflow as tf
 import argparse
 
 # preprocess for language model
@@ -11,6 +13,7 @@ class Prepro():
     def __init__(self, vocab_size=3000, len_sent=120):
         self._vocab_size = vocab_size
         self._len_sent = len_sent
+        self.config = Config
         self.train_dict = {}
         self.test_dict = {}
 
@@ -21,7 +24,7 @@ class Prepro():
             features = np.load(os.path.join(path, f))
             features_dict[f[:-4]] = features
 
-    def load_labels(self, path):
+    def load_labels(self, path, split_ratio=0.8):
         print "load training"
         # training labels
         with open(os.path.join(path, "training_label.json")) as f:
@@ -41,6 +44,7 @@ class Prepro():
             for sent in caption:
                 tok = sent[:-1].split(' ')
                 cnt.update(tok)
+                tok = tok[:self.config.cap_length-1]
                 tok += ['<eos>']
 
                 caps += [tok]
@@ -56,15 +60,23 @@ class Prepro():
         self._vocab_size = len(tokens)
         self._tokens = tokens
 
-        train_dict = {}
+        train_vid_list = []
+        train_cap_list = []
         for key, cap in cnt_dict.iteritems():
-            ss = []
             for sent in cap:
                 s = []
                 for wd in sent:
                     s += [tokens[wd] if wd in tokens else tokens['<unk>']]
-                ss += [s]
-            train_dict[key] = ss
+                train_vid_list += [key]
+                train_cap_list += [s]
+
+        n_train = len(train_vid_list)
+        n_split = int(n_train * split_ratio)
+        dev_vid_list = train_vid_list[n_split:]
+        dev_cap_list = train_cap_list[n_split:]
+
+        train_vid_list = train_vid_list[:n_split]
+        train_cap_list = train_cap_list[:n_split]
 
         del cnt_dict
         del cnt
@@ -73,25 +85,36 @@ class Prepro():
         with open(os.path.join(path, "testing_public_label.json")) as f:
             test_label = json.load(f)
 
-        test_dict = {}
+        test_vid_list = []
+        test_cap_list = []
         for i in test_label:
             tid = i["id"]
-            ss = []
             caption = i["caption"]
             for sent in caption:
                 tok = sent[:-1].split(' ')
+                tok = tok[:self.config.cap_length-1]
                 tok += ['<eos>']
                 s = []
                 for wd in tok:
                     s += [tokens[wd] if wd in tokens else tokens['<unk>']]
-                ss += [s]
-            test_dict[tid] = ss
+                test_vid_list += [tid]
+                test_cap_list += [s]
 
-        return train_dict, test_dict
+        train_dict = {'id': train_vid_list, 'caption': train_cap_list}
+        dev_dict = {'id': dev_vid_list, 'caption': dev_cap_list}
+        test_dict = {'id': test_vid_list, 'caption': test_cap_list}
+
+        self.train_dict = train_dict
+        self.dev_dict = dev_dict
+        self.test_dict = test_dict
+        # return train_dict, test_dict
 
     def dump_result(self, dest_dir):
         with open(dest_dir + "/train_label.json", "w") as f:
             f.write(json.dumps(self.train_dict))
+
+        with open(dest_dir + "/dev_label.json", "w") as f:
+            f.write(json.dumps(self.dev_dict))
 
         with open(dest_dir + "/test_label.json", "w") as f:
             f.write(json.dumps(self.test_dict))
@@ -103,7 +126,7 @@ class Prepro():
             pickle.dump(vals, f)
 
     def preprocess(self, src_dir, dest_dir):
-        self.train_dict, self.test_dict = self.load_labels(src_dir)
+        self.load_labels(src_dir)
         self.dump_result(dest_dir)
 
     @property
@@ -112,7 +135,7 @@ class Prepro():
 
 def test():
     p = Prepro()
-    p.preprocess("a2_data", "preprocessed")
+    p.preprocess("a2_data", "test")
 
 if __name__ == "__main__":
     test()

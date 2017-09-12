@@ -10,7 +10,8 @@ class Config:
 	Create test here.
     """
     img_length = 80
-    n_img_features = 4086
+    cap_length = 40
+    n_img_features = 4096
     max_length = 120 # longest sequence to parse
     vocab_size = 3000
     dropout = 0.667

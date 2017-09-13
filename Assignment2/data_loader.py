@@ -20,7 +20,7 @@ class DataLoader:
 
     def load_params(self, src_dir):
         logger.info("load params")
-        with open(os.path.join(src_dir, "param.plk"), "r") as f:
+        with open(os.path.join(src_dir, "param.plk"), "rb") as f:
             vocab = pickle.load(f)
             vals = pickle.load(f)
 
@@ -45,7 +45,7 @@ class DataLoader:
 
         input_dict['caption'] = np.asarray(cap_list, dtype=np.int32)
         input_dict['mask'] = np.asarray(mask_list, dtype=np.bool)
-        input_dict['img'] = np.asarray(np_list, dtype=np.float32)
+        input_dict['img'] = np.asarray(list(np_list), dtype=np.float32)
 
         return input_dict
 
@@ -72,7 +72,7 @@ class DataLoader:
         self._dev_data = dev_data
         self._test_data = test_data
 
-    def data_queue(self, data):
+    def data_queue(self, data, shuffle=True):
         """
 
         :param data:
@@ -88,17 +88,18 @@ class DataLoader:
         assert cap_list.shape[0] == mask_list.shape[0] == img_list.shape[0]
         n_samples = cap_list.shape[0]
         idx = np.arange(n_samples)
-        np.random.shuffle(idx)
+        if shuffle:
+            np.random.shuffle(idx)
 
         start = 0
         end = n_samples
         while start < end:
             cur_end = start + self.config.batch_size
             indices = idx[start:cur_end]
-            img_slice = map(lambda x: img_list[x], indices)
-            vid_slice = map(lambda x: vid_list[x], indices)
-            cap_slice = map(lambda x: cap_list[x], indices)
-            mask_slice = map(lambda x: mask_list[x], indices)
+            img_slice = np.asarray(list(map(lambda x: img_list[x], indices)), dtype=np.float32)
+            vid_slice = list(map(lambda x: vid_list[x], indices))
+            cap_slice = np.asarray(list(map(lambda x: cap_list[x], indices)), dtype=np.int32)
+            mask_slice = np.asarray(list(map(lambda x: mask_list[x], indices)), dtype=np.bool)
             q.put((img_slice, cap_slice, mask_slice, vid_slice))
 
             start = cur_end
@@ -114,7 +115,7 @@ class DataLoader:
 
     @property
     def test_queue(self):
-        return self.data_queue(self.test_data)
+        return self.data_queue(self.test_data, shuffle=False)
 
     @property
     def train_data(self):

@@ -119,7 +119,7 @@ class Prepro():
         with open(dest_dir + "/test_label.json", "w") as f:
             f.write(json.dumps(self.test_dict))
 
-        with open(dest_dir + "/param.plk", "w") as f:
+        with open(dest_dir + "/param.plk", "wb") as f:
             pickle.dump(self._tokens, f)
             vals = {'vocab_size': self._vocab_size,
                     'max_length': self._len_sent}
@@ -142,5 +142,5 @@ def run():
     p.preprocess("MLDS_hw2_data", "preprocessed")
 
 if __name__ == "__main__":
-    # test()
-    run()
+    test()
+    # run()

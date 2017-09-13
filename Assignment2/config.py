@@ -18,8 +18,9 @@ class Config:
     embed_size = 100
     hidden_size = 256
     batch_size = 64
-    n_epochs = 20
+    n_epochs = 2
     lr = 0.001
+    max_grad_norm = 5.
 
     def __init__(self, args):
         self.cell = args.cell

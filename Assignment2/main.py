@@ -30,7 +30,7 @@ def do_test(args):
     with tf.Graph().as_default():
         logger.info("Building model...",)
         start = time.time()
-        model = RNNModel(config, pretrained_embeddings)
+        model = RNNModel(config)
         logger.info("took %.2f seconds", time.time() - start)
 
         init = tf.global_variables_initializer()
@@ -72,15 +72,13 @@ def do_evaluate(args):
 
     print(" -- loading -- ")
     data_loader = DataLoader("test")
-    data_loader.load_and_preprocess_test()
-    config.embed_size, pretrained_embeddings = data_loader.load_embedding()
-    config.max_length = data_loader.max_length
     config.vocab_size = data_loader.vocab_size
+    config.max_length = data_loader.max_length
 
     with tf.Graph().as_default():
         logger.info("Building model...", )
         start = time.time()
-        model = RNNModel(config, pretrained_embeddings)
+        model = RNNModel(config)
 
         logger.info("took %.2f seconds", time.time() - start)
 
@@ -93,11 +91,11 @@ def do_evaluate(args):
             logger.info("Evaluating test set")
             preds = model.evaluate_test(session, data_loader)
 
-            ans = ['a', 'b', 'c', 'd', 'e']
-            cols = ['id', 'answer']
-            data_frame = pd.DataFrame({"id":[i+1 for i in range(len(preds))],
-                                       "answer":[ans[i] for i in preds]})
-            data_frame.to_csv(config.output_path + "/ans.csv", index=False, sep=',', columns=cols)
+            # ans = ['a', 'b', 'c', 'd', 'e']
+            # cols = ['id', 'answer']
+            # data_frame = pd.DataFrame({"id":[i+1 for i in range(len(preds))],
+            #                            "answer":[ans[i] for i in preds]})
+            # data_frame.to_csv(config.output_path + "/ans.csv", index=False, sep=',', columns=cols)
 
 
 def main():

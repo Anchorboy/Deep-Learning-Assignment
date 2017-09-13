@@ -7,12 +7,13 @@ class RNNModel:
     def __init__(self, config):
         self.config = config
         self.max_length = self.config.max_length
-        self.iter = 0
+        self.train_iter = 0
+        self.dev_iter = 0
 
         self.img_input_placeholder = None
         self.cap_input_placeholder = None
         self.cap_mask_placeholder = None
-        self.labels_placeholder = None
+        # self.labels_placeholder = None
         self.dropout_placeholder = None
 
         self.build()
@@ -33,29 +34,25 @@ class RNNModel:
         self.img_input_placeholder = tf.placeholder(dtype=tf.float32, shape=(None, self.config.img_length, self.config.n_img_features))
         self.cap_input_placeholder = tf.placeholder(dtype=tf.int32, shape=(None, self.config.cap_length))
         self.cap_mask_placeholder = tf.placeholder(dtype=tf.bool, shape=(None, self.config.cap_length))
-        self.labels_placeholder = tf.placeholder(dtype=tf.int32, shape=(None, self.config.cap_length))
         self.dropout_placeholder = tf.placeholder(dtype=tf.float32, shape=())
 
-    def create_feed_dict(self, img_inputs_batch, cap_inputs_batch, mask_batch=None, labels_batch=None, dropout=1):
+    def create_feed_dict(self, img_inputs_batch, cap_inputs_batch=None, mask_batch=None, dropout=1):
         feed_dict = {self.img_input_placeholder: img_inputs_batch,
-                     self.cap_input_placeholder: cap_inputs_batch,
                      self.dropout_placeholder:dropout}
-        if labels_batch is not None:
-            feed_dict[self.labels_placeholder] = labels_batch
+        if cap_inputs_batch is not None:
+            feed_dict[self.cap_input_placeholder] = cap_inputs_batch
         if mask_batch is not None:
             feed_dict[self.cap_mask_placeholder] = mask_batch
         return feed_dict
 
-    def add_word_embedding(self):
-        embed = tf.get_variable('embed', shape=(self.config.vocab_size, self.config.embed_size),
-                                initializer=tf.truncated_normal(shape=(self.config.vocab_size, self.config.embed_size), stddev=1.0/ np.sqrt(self.config.vocab_size)))
-        return embed
-
     def add_prediction_op(self):
         img = self.img_input_placeholder
-        cap = self.cap_input_placeholder
-        word_embed = self.embed
+        if self.config.mode == "train":
+            cap = self.cap_input_placeholder
+
         dropout_rate = self.dropout_placeholder
+        init = tf.truncated_normal(shape=(self.config.vocab_size, self.config.embed_size), stddev=1.0/ np.sqrt(self.config.vocab_size))
+        word_embed = tf.get_variable('embed', initializer=init)
 
         if self.config.cell == "rnn":
             cell1 = tf.nn.rnn_cell.BasicRNNCell(self.config.hidden_size)
@@ -80,37 +77,46 @@ class RNNModel:
                                  initializer=tf.contrib.layers.xavier_initializer(seed=124))
 
         input_shape = tf.shape(img)
-        h1 = cell1.zero_state(input_shape, dtype=tf.float32)
-        h2 = cell2.zero_state(input_shape, dtype=tf.float32)
-        padding = tf.zeros([input_shape[0], self.config.hidden_size])
+        h1 = cell1.zero_state(input_shape[0], dtype=tf.float32)
+        h2 = cell2.zero_state(input_shape[0], dtype=tf.float32)
+        img_padding = tf.zeros([input_shape[0], self.config.n_img_features])
+        word_padding = tf.zeros([input_shape[0], self.config.embed_size])
 
         # ---------- encoding stage ----------
         for i in range(self.config.img_length):
-            if i > 0:
-                tf.get_variable_scope().reuse_variables()
-
             with tf.variable_scope("rnn1") as scope:
                 o_t1, h_t1 = cell1(img[:, i, :], h1, scope=scope)
+                scope.reuse_variables()
 
             with tf.variable_scope("rnn2") as scope:
-                o_t2, h_t2 = cell2(tf.concat([padding, h_t1], axis=1), h2, scope=scope)
+                o_t2, h_t2 = cell2(tf.concat([word_padding, h_t1], axis=1), h2, scope=scope)
+                scope.reuse_variables()
 
         # ---------- decoding stage ----------
         preds = []
         for i in range(self.config.cap_length):
-            with tf.device("/cpu:0"):
-                cur_embed = tf.nn.embedding_lookup(word_embed, cap[:, i])
-
-            tf.get_variable_scope().reuse_variables()
+            if i == 0:
+                with tf.device("/cpu:0"):
+                    cur_embed = tf.nn.embedding_lookup(word_embed,
+                                                   tf.ones([input_shape[0]], dtype=tf.int32))
 
             with tf.variable_scope("rnn1") as scope:
-                o_t1, h_t1 = cell1(padding, h1, scope=scope)
+                o_t1, h_t1 = cell1(img_padding, h1, scope=scope)
+                scope.reuse_variables()
 
             with tf.variable_scope("rnn2") as scope:
                 o_t2, h_t2 = cell2(tf.concat([cur_embed, h_t1], axis=1), h2, scope=scope)
+                scope.reuse_variables()
 
             y_t = tf.nn.xw_plus_b(o_t2, W1, b1)
             preds += [y_t]
+            if self.config.mode == "train":
+                with tf.device("/cpu:0"):
+                    cur_embed = tf.nn.embedding_lookup(word_embed, cap[:, i])
+            elif self.config.mode == "test":
+                max_word_idx = tf.argmax(tf.nn.softmax(y_t), axis=1)
+                with tf.device("/cpu:0"):
+                    cur_embed = tf.nn.embedding_lookup(word_embed, max_word_idx)
 
         preds = tf.stack(preds, axis=1)
 
@@ -120,12 +126,15 @@ class RNNModel:
 
     def add_mask_op(self, preds):
         masked_logits = tf.boolean_mask(preds, self.cap_mask_placeholder)
-        masked_labels = tf.boolean_mask(self.labels_placeholder, self.cap_mask_placeholder)
+        masked_labels = tf.boolean_mask(self.cap_input_placeholder, self.cap_mask_placeholder)
         return masked_logits, masked_labels
 
     def add_loss_op(self, preds):
         logits = preds
-        labels = self.labels_placeholder
+        labels = self.cap_input_placeholder
+        if self.config.mode == "train":
+            logits, labels = self.add_mask_op(preds)
+
         loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=labels)
         return loss
 
@@ -134,18 +143,23 @@ class RNNModel:
         return cost
 
     def add_training_op(self, cost):
-        train_op = tf.train.AdamOptimizer(self.config.lr).minimize(cost)
+        optimizer = tf.train.AdamOptimizer(self.config.lr)
+        # compute gradients here
+        grads_and_vars = optimizer.compute_gradients(cost)
+        grads, variables = zip(*grads_and_vars)
+        grads, grad_norm = tf.clip_by_global_norm(grads, clip_norm=self.config.max_grad_norm)
+
+        train_op = optimizer.apply_gradients(zip(grads, variables))
         return train_op
 
     def build(self):
         self.add_placeholders()
-        self.embed = self.add_word_embedding()
         self.pred = self.add_prediction_op()
         self.loss = self.add_loss_op(self.pred)
         self.cost = self.add_cost_op(self.loss)
-        self.train_op = self.add_training_op(self.cost)
-
-        self.sum_op = self.add_summary_op()
+        if self.config.mode == "train":
+            self.train_op = self.add_training_op(self.cost)
+            self.sum_op = self.add_summary_op()
 
     def add_summary_op(self):
         tf.summary.scalar('cost', self.cost)
@@ -153,7 +167,6 @@ class RNNModel:
         return merged
 
 # --- model operation ---
-
     """
     def output(self, sess, inputs_queue, desc, data):
         vids = []
@@ -174,31 +187,55 @@ class RNNModel:
         masked_labels = labels[mask]
         acc = np.mean(masked_preds == masked_labels)
         return acc
-
-    def evaluate(self, sess, data_loader):
-        # --- train ---
-        n_train_batch = data_loader.n_train_batch(self.config.batch_size)
-        train_batch = data_loader.train_batch(self.config.batch_size)
-        train_data = data_loader.train_data
-        train_acc = self.output(sess, n_train_batch, train_batch, 'train eval', train_data)
-
-        # --- dev ---
-        n_dev_batch = data_loader.n_dev_batch(self.config.batch_size)
-        dev_batch = data_loader.dev_batch(self.config.batch_size)
-        dev_data = data_loader.dev_data
-        dev_acc = self.output(sess, n_dev_batch, dev_batch, 'dev eval', dev_data)
-
-        return train_acc, dev_acc
-        
-
-    def predict_on_batch(self, sess, img_inputs_batch, cap_inputs_batch, mask_batch):
-        feed = self.create_feed_dict(img_inputs_batch=img_inputs_batch, cap_inputs_batch=cap_inputs_batch, mask_batch=mask_batch)
-        predictions = sess.run(tf.argmax(tf.nn.softmax(self.pred), axis=2), feed_dict=feed)
-        return predictions
         """
 
-    def train_on_batch(self, sess, img_inputs_batch, cap_inputs_batch, cap_labels_batch, mask_batch):
-        feed = self.create_feed_dict(inputs_batch, labels_batch=labels_batch, mask_batch=mask_batch,
+    def evaluate_dev(self, sess, data_loader, dev_writer):
+        # batch = (img_slice, cap_slice, mask_slice, vid_slice)
+        dev_queue = data_loader.dev_queue
+        pbar = tqdm(total=dev_queue.qsize())
+        total_loss = []
+        while not dev_queue.empty():
+            batch = dev_queue.get()
+            loss, summary = self.loss_on_batch(sess, *batch[:-1])
+            dev_writer.add_summary(summary, self.dev_iter)
+            pbar.set_description("dev loss = {}".format(np.mean(loss)))
+            pbar.update(1)
+            self.dev_iter += 1
+            total_loss += list(loss)
+        print("")
+
+        ave_loss = np.mean(total_loss)
+        return ave_loss
+
+    def evaluate_test(self, sess, data_loader):
+        preds = []
+        vids = []
+        test_queue = data_loader.test_queue
+
+        pbar = tqdm(total=test_queue.qsize(), desc="testing")
+        while not test_queue.empty():
+            batch = test_queue.get()
+            preds_ = self.predict_on_batch(sess, *batch[:-1])
+            preds += list(preds_)
+            vids += batch[-1]
+            pbar.update(1)
+        print("")
+
+        return vids, preds
+
+    def predict_on_batch(self, sess, img_inputs_batch, cap_inputs_batch, mask_batch):
+        feed = self.create_feed_dict(img_inputs_batch=img_inputs_batch, cap_inputs_batch=cap_inputs_batch,
+                                     mask_batch=mask_batch)
+        predictions = sess.run(tf.argmax(tf.nn.softmax(self.pred), axis=2), feed_dict=feed)
+        return predictions
+
+    def loss_on_batch(self, sess, img_inputs_batch, cap_inputs_batch, mask_batch):
+        feed = self.create_feed_dict(img_inputs_batch=img_inputs_batch, cap_inputs_batch=cap_inputs_batch, mask_batch=mask_batch)
+        loss, _, summary = sess.run([self.loss, self.cost, self.sum_op], feed_dict=feed)
+        return loss, summary
+
+    def train_on_batch(self, sess, img_inputs_batch, cap_inputs_batch, mask_batch):
+        feed = self.create_feed_dict(img_inputs_batch=img_inputs_batch, cap_inputs_batch=cap_inputs_batch, mask_batch=mask_batch,
                                      dropout=self.config.dropout)
         _, cost, summary = sess.run([self.train_op, self.cost, self.sum_op], feed_dict=feed)
         return cost, summary
@@ -212,20 +249,20 @@ class RNNModel:
         while not train_queue.empty():
             batch = train_queue.get()
             cost, summary = self.train_on_batch(sess, *batch[:-1])
-            train_writer.add_summary(summary, self.iter)
+            train_writer.add_summary(summary, self.train_iter)
             pbar.set_description("train loss = {}".format(cost))
             pbar.update(1)
-            self.iter += 1
+            self.train_iter += 1
         print("")
 
-        # logger.info("Evaluating on training data")
-        # acc = self.evaluate(sess, data_loader)
-        # logger.info("Accuracy on train/dev: %.4f/%.4f", *acc)
+        logger.info("Evaluating on dev data")
+        dev_loss = self.evaluate_dev(sess, data_loader, dev_writer)
+        logger.info("Dev loss = {}".format(dev_loss))
 
-        # return acc[1]
+        return dev_loss
 
     def fit(self, sess, saver, data_loader, logger):
-        best_score = 0.
+        best_loss = float("inf")
 
         train_writer = tf.summary.FileWriter(self.config.log_output + '/train',
                                              sess.graph)
@@ -233,11 +270,11 @@ class RNNModel:
                                              sess.graph)
         for epoch in range(self.config.n_epochs):
             logger.info("Epoch %d out of %d", epoch + 1, self.config.n_epochs)
-            score = self.run_epoch(sess, data_loader, logger, (train_writer, dev_writer))
-            if score > best_score:
-                best_score = score
+            loss = self.run_epoch(sess, data_loader, logger, (train_writer, dev_writer))
+            if loss < best_loss:
+                best_loss = loss
                 logger.info("New best score! Saving model in %s", self.config.model_output)
-            if saver:
-                saver.save(sess, self.config.model_output)
+                if saver:
+                    saver.save(sess, self.config.model_output)
             print("")
-        return best_score
+        return best_loss

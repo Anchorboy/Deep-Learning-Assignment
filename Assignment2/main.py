@@ -4,7 +4,6 @@ import sys
 import time
 import logging
 import argparse
-import pandas as pd
 import tensorflow as tf
 from config import Config
 from data_loader import DataLoader
@@ -22,6 +21,7 @@ def do_test(args):
 
     print(" -- loading -- ")
     data_loader = DataLoader("test")
+    data_loader.load_data()
     config.vocab_size = data_loader.vocab_size
     config.max_length = data_loader.max_length
 
@@ -47,6 +47,7 @@ def do_train(args):
 
     print(" -- loading -- ")
     data_loader = DataLoader("processed")
+    data_loader.load_data()
     config.max_length = data_loader.max_length
     config.vocab_size = data_loader.vocab_size
 
@@ -72,6 +73,7 @@ def do_evaluate(args):
 
     print(" -- loading -- ")
     data_loader = DataLoader("test")
+    data_loader.load_test_data()
     config.vocab_size = data_loader.vocab_size
     config.max_length = data_loader.max_length
 

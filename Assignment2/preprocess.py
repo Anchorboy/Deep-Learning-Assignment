@@ -85,10 +85,12 @@ class Prepro():
         with open(os.path.join(path, "testing_public_label.json")) as f:
             test_label = json.load(f)
 
+        vids = []
         test_vid_list = []
         test_cap_list = []
         for i in test_label:
             tid = i["id"]
+            vids += [tid]
             caption = i["caption"]
             for sent in caption:
                 tok = sent[:-1].split(' ')
@@ -106,7 +108,8 @@ class Prepro():
 
         self.train_dict = train_dict
         self.dev_dict = dev_dict
-        self.test_dict = test_dict
+        self.test_dict_v2 = test_dict
+        self.test_dict = {'id': vids}
         # return train_dict, test_dict
 
     def dump_result(self, dest_dir):
@@ -139,8 +142,8 @@ def test():
 
 def run():
     p = Prepro()
-    p.preprocess("MLDS_hw2_data", "preprocessed")
+    p.preprocess("MLDS_hw2_data", "processed")
 
 if __name__ == "__main__":
     test()
-    # run()
+    run()

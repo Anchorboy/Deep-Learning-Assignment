@@ -15,10 +15,10 @@ class Config:
     max_length = 120 # longest sequence to parse
     vocab_size = 3000
     dropout = 0.667
-    embed_size = 100
+    embed_size = 500
     hidden_size = 256
     batch_size = 64
-    n_epochs = 2
+    n_epochs = 20
     lr = 0.001
     max_grad_norm = 5.
 

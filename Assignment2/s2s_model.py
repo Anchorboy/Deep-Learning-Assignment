@@ -13,8 +13,10 @@ class RNNModel:
         self.img_input_placeholder = None
         self.cap_input_placeholder = None
         self.cap_mask_placeholder = None
-        # self.labels_placeholder = None
         self.dropout_placeholder = None
+
+        self.tensor_list = []
+        self.tensor_dict = {}
 
         self.build()
 
@@ -71,26 +73,40 @@ class RNNModel:
             cell2 = tf.nn.rnn_cell.DropoutWrapper(cell2, output_keep_prob=dropout_rate)
 
         with tf.variable_scope("layer1"):
-            W1 = tf.get_variable('W1', shape=(self.config.hidden_size, self.config.vocab_size),
+            W1 = tf.get_variable('W1', shape=(self.config.n_img_features, self.config.embed_size),
+                                initializer=tf.contrib.layers.xavier_initializer(seed=199))
+            b1 = tf.get_variable('b1', shape=(self.config.embed_size),
+                                initializer=tf.contrib.layers.xavier_initializer(seed=198))
+
+        with tf.variable_scope("layer2"):
+            W2 = tf.get_variable('W2', shape=(self.config.hidden_size, self.config.vocab_size),
                                 initializer=tf.contrib.layers.xavier_initializer(seed=123))
-            b1 = tf.get_variable('b1', shape=(self.config.vocab_size),
+            b2 = tf.get_variable('b2', shape=(self.config.vocab_size),
                                  initializer=tf.contrib.layers.xavier_initializer(seed=124))
 
         input_shape = tf.shape(img)
-        h1 = cell1.zero_state(input_shape[0], dtype=tf.float32)
-        h2 = cell2.zero_state(input_shape[0], dtype=tf.float32)
-        img_padding = tf.zeros([input_shape[0], self.config.n_img_features])
+        h_t1 = cell1.zero_state(input_shape[0], dtype=tf.float32)
+        h_t2 = cell2.zero_state(input_shape[0], dtype=tf.float32)
+        img_padding = tf.zeros([input_shape[0], self.config.embed_size])
         word_padding = tf.zeros([input_shape[0], self.config.embed_size])
 
+        flattened_img = tf.reshape(img, shape=(-1, self.config.n_img_features))
+        img_emb = tf.nn.xw_plus_b(flattened_img, W1, b1)
+        img_emb = tf.nn.relu(img_emb)
+        img_emb = tf.reshape(img_emb, shape=(-1, self.config.img_length, self.config.embed_size))
+
         # ---------- encoding stage ----------
+        # o, h = (batch_size x hidden_size)
         for i in range(self.config.img_length):
             with tf.variable_scope("rnn1") as scope:
-                o_t1, h_t1 = cell1(img[:, i, :], h1, scope=scope)
-                scope.reuse_variables()
+                if i > 0:
+                    scope.reuse_variables()
+                o_t1, h_t1 = cell1(img_emb[:, i, :], h_t1, scope=scope)
 
             with tf.variable_scope("rnn2") as scope:
-                o_t2, h_t2 = cell2(tf.concat([word_padding, h_t1], axis=1), h2, scope=scope)
-                scope.reuse_variables()
+                if i > 0:
+                    scope.reuse_variables()
+                o_t2, h_t2 = cell2(tf.concat([word_padding, h_t1[-1]], axis=1), h_t2, scope=scope)
 
         # ---------- decoding stage ----------
         preds = []
@@ -101,14 +117,14 @@ class RNNModel:
                                                    tf.ones([input_shape[0]], dtype=tf.int32))
 
             with tf.variable_scope("rnn1") as scope:
-                o_t1, h_t1 = cell1(img_padding, h1, scope=scope)
                 scope.reuse_variables()
+                o_t1, h_t1 = cell1(img_padding, h_t1, scope=scope)
 
             with tf.variable_scope("rnn2") as scope:
-                o_t2, h_t2 = cell2(tf.concat([cur_embed, h_t1], axis=1), h2, scope=scope)
                 scope.reuse_variables()
+                o_t2, h_t2 = cell2(tf.concat([cur_embed, h_t1[-1]], axis=1), h_t2, scope=scope)
 
-            y_t = tf.nn.xw_plus_b(o_t2, W1, b1)
+            y_t = tf.nn.xw_plus_b(h_t2[-1], W2, b2)
             preds += [y_t]
             if self.config.mode == "train":
                 with tf.device("/cpu:0"):
@@ -167,27 +183,6 @@ class RNNModel:
         return merged
 
 # --- model operation ---
-    """
-    def output(self, sess, inputs_queue, desc, data):
-        vids = []
-        preds = []
-        pbar = tqdm(total=inputs_queue.qsize(), desc=desc)
-        while not inputs_queue.empty():
-            # Ignore predict
-            # batch = (img_slice, cap_slice, mask_slice, vid_slice)
-            batch = inputs_queue.get()
-            preds_ = self.predict_on_batch(sess, *batch[:-1])
-            preds += list(preds_)
-            vids += batch[-1]
-            pbar.update(1)
-
-        preds = np.asarray(preds, dtype=np.int32)
-        _, labels, mask = data
-        masked_preds = preds[mask]
-        masked_labels = labels[mask]
-        acc = np.mean(masked_preds == masked_labels)
-        return acc
-        """
 
     def evaluate_dev(self, sess, data_loader, dev_writer):
         # batch = (img_slice, cap_slice, mask_slice, vid_slice)
@@ -196,7 +191,8 @@ class RNNModel:
         total_loss = []
         while not dev_queue.empty():
             batch = dev_queue.get()
-            loss, summary = self.loss_on_batch(sess, *batch[:-1])
+            img_map = data_loader.dev_img_map
+            loss, summary = self.loss_on_batch(sess, img_map, *batch[:-1])
             dev_writer.add_summary(summary, self.dev_iter)
             pbar.set_description("dev loss = {}".format(np.mean(loss)))
             pbar.update(1)
@@ -215,26 +211,36 @@ class RNNModel:
         pbar = tqdm(total=test_queue.qsize(), desc="testing")
         while not test_queue.empty():
             batch = test_queue.get()
-            preds_ = self.predict_on_batch(sess, *batch[:-1])
+            img_map = data_loader.test_img_map
+            preds_ = self.predict_on_batch(sess, img_map, *batch[:-1])
             preds += list(preds_)
-            vids += batch[-1]
+            vids += list(batch[-1])
             pbar.update(1)
         print("")
 
+        print(list(zip(vids, preds)))
         return vids, preds
 
-    def predict_on_batch(self, sess, img_inputs_batch, cap_inputs_batch, mask_batch):
-        feed = self.create_feed_dict(img_inputs_batch=img_inputs_batch, cap_inputs_batch=cap_inputs_batch,
-                                     mask_batch=mask_batch)
+    def predict_on_batch(self, sess, img_map, img_inputs_batch):
+        img_inputs_batch = np.asarray([img_map.__next__() for _ in range(img_inputs_batch)], dtype=np.float32)
+        feed = self.create_feed_dict(img_inputs_batch=img_inputs_batch)
+        # p_ = sess.run(self.pred, feed_dict=feed)
+        # print(p_)
         predictions = sess.run(tf.argmax(tf.nn.softmax(self.pred), axis=2), feed_dict=feed)
         return predictions
 
-    def loss_on_batch(self, sess, img_inputs_batch, cap_inputs_batch, mask_batch):
+    def loss_on_batch(self, sess, img_map, img_inputs_batch, cap_inputs_batch, mask_batch):
+        img_inputs_batch = np.asarray([img_map.__next__() for _ in range(img_inputs_batch)], dtype=np.float32)
+        cap_inputs_batch = np.asarray(list(cap_inputs_batch), dtype=np.int32)
+        mask_batch = np.asarray(list(mask_batch), dtype=np.bool)
         feed = self.create_feed_dict(img_inputs_batch=img_inputs_batch, cap_inputs_batch=cap_inputs_batch, mask_batch=mask_batch)
         loss, _, summary = sess.run([self.loss, self.cost, self.sum_op], feed_dict=feed)
         return loss, summary
 
-    def train_on_batch(self, sess, img_inputs_batch, cap_inputs_batch, mask_batch):
+    def train_on_batch(self, sess, img_map, img_inputs_batch, cap_inputs_batch, mask_batch):
+        img_inputs_batch = np.asarray([img_map.__next__() for _ in range(img_inputs_batch)], dtype=np.float32)
+        cap_inputs_batch = np.asarray(list(cap_inputs_batch), dtype=np.int32)
+        mask_batch = np.asarray(list(mask_batch), dtype=np.bool)
         feed = self.create_feed_dict(img_inputs_batch=img_inputs_batch, cap_inputs_batch=cap_inputs_batch, mask_batch=mask_batch,
                                      dropout=self.config.dropout)
         _, cost, summary = sess.run([self.train_op, self.cost, self.sum_op], feed_dict=feed)
@@ -248,7 +254,8 @@ class RNNModel:
         pbar = tqdm(total=train_queue.qsize())
         while not train_queue.empty():
             batch = train_queue.get()
-            cost, summary = self.train_on_batch(sess, *batch[:-1])
+            img_map = data_loader.train_img_map
+            cost, summary = self.train_on_batch(sess, img_map, *batch[:-1])
             train_writer.add_summary(summary, self.train_iter)
             pbar.set_description("train loss = {}".format(cost))
             pbar.update(1)

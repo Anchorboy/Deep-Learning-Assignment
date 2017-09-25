@@ -72,7 +72,7 @@ def do_evaluate(args):
     config = Config(args)
 
     print(" -- loading -- ")
-    data_loader = DataLoader("test")
+    data_loader = DataLoader("processed")
     data_loader.load_test_data()
     config.vocab_size = data_loader.vocab_size
     config.max_length = data_loader.max_length
@@ -105,16 +105,16 @@ def main():
     subparsers = parser.add_subparsers()
 
     command_parser = subparsers.add_parser('test', help='')
-    command_parser.add_argument('-c', '--cell', choices=["rnn", "gru", "lstm"], default="rnn", help="Type of RNN cell to use.")
+    command_parser.add_argument('-c', '--cell', choices=["rnn", "gru", "lstm"], default="lstm", help="Type of RNN cell to use.")
     command_parser.set_defaults(func=do_test)
 
     command_parser = subparsers.add_parser('train', help='')
-    command_parser.add_argument('-c', '--cell', choices=["rnn", "gru", "lstm"], default="rnn", help="Type of RNN cell to use.")
+    command_parser.add_argument('-c', '--cell', choices=["rnn", "gru", "lstm"], default="lstm", help="Type of RNN cell to use.")
     command_parser.set_defaults(func=do_train)
 
     command_parser = subparsers.add_parser('evaluate', help='')
     command_parser.add_argument('-m', '--model-path', help="Training data")
-    command_parser.add_argument('-c', '--cell', choices=["rnn", "gru", "lstm"], default="rnn", help="Type of RNN cell to use.")
+    command_parser.add_argument('-c', '--cell', choices=["rnn", "gru", "lstm"], default="lstm", help="Type of RNN cell to use.")
     command_parser.set_defaults(func=do_evaluate)
 
     ARGS = parser.parse_args()

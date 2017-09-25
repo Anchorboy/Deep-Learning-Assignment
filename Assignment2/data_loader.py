@@ -35,7 +35,7 @@ class DataLoader:
     def process_dict(self, dir, input_dict):
         vid_list = input_dict['id']
         cap_list = []
-        np_list = map(lambda x: np.load(pjoin(dir, x + ".npy")), vid_list)
+        np_list = map(lambda x: pjoin(dir, x + ".npy"), vid_list)
 
         mask_list = []
         for sent in input_dict['caption']:
@@ -48,14 +48,14 @@ class DataLoader:
 
         input_dict['caption'] = np.asarray(cap_list, dtype=np.int32)
         input_dict['mask'] = np.asarray(mask_list, dtype=np.bool)
-        input_dict['img'] = np_list
+        input_dict['img'] = list(np_list)
 
         return input_dict
 
     def process_test_dict(self, dir, input_dict):
         vid_list = input_dict['id']
-        np_list = map(lambda x: np.load(pjoin(dir, x + ".npy")), vid_list)
-        input_dict['img'] = np_list
+        np_list = map(lambda x: pjoin(dir, x + ".npy"), vid_list)
+        input_dict['img'] = list(np_list)
 
         return input_dict
 
@@ -88,7 +88,7 @@ class DataLoader:
 
         self._test_data = test_data
 
-    def data_queue(self, data, shuffle=True):
+    def data_queue(self, data):
         """
 
         :param data:
@@ -99,21 +99,19 @@ class DataLoader:
         vid_list = data['id']
         cap_list = data['caption']
         mask_list = data['mask']
+        img_list = data['img']
 
         assert cap_list.shape[0] == mask_list.shape[0]
         n_samples = cap_list.shape[0]
         idx = np.arange(n_samples)
-        if shuffle:
-            np.random.shuffle(idx)
 
         start = 0
         end = n_samples
         while start < end:
             cur_end = start + self.config.batch_size
             indices = idx[start:cur_end]
-            # img_slice = map(lambda x: img_list[x], indices)
-            # img_slice = map([img_map.__next__() for _ in range(min(cur_end, end) - start)])
-            img_slice = min(cur_end, end) - start
+            
+            img_slice = map(lambda x: np.load(img_list[x]), indices)
             vid_slice = map(lambda x: vid_list[x], indices)
             cap_slice = map(lambda x: cap_list[x], indices)
             mask_slice = map(lambda x: mask_list[x], indices)
@@ -126,6 +124,7 @@ class DataLoader:
         q = queue.Queue()
 
         vid_list = data['id']
+        img_list = data['img']
 
         n_samples = len(vid_list)
         idx = np.arange(n_samples)
@@ -135,8 +134,8 @@ class DataLoader:
         while start < end:
             cur_end = start + self.config.batch_size
             indices = idx[start:cur_end]
-            img_slice = min(cur_end, end) - start
-            vid_slice = list(map(lambda x: vid_list[x], indices))
+            img_slice = map(lambda x: np.load(img_list[x]), indices)
+            vid_slice = map(lambda x: vid_list[x], indices)
             q.put((img_slice, vid_slice))
 
             start = cur_end
@@ -147,24 +146,12 @@ class DataLoader:
         return self.data_queue(self.train_data)
 
     @property
-    def train_img_map(self):
-        return copy.deepcopy(self.train_data['img'])
-
-    @property
     def dev_queue(self):
         return self.data_queue(self.dev_data)
 
     @property
-    def dev_img_map(self):
-        return copy.deepcopy(self.dev_data['img'])
-
-    @property
     def test_queue(self):
         return self.test_data_queue(self.test_data)
-
-    @property
-    def test_img_map(self):
-        return copy.deepcopy(self.test_data['img'])
 
     @property
     def train_data(self):
@@ -186,10 +173,30 @@ class DataLoader:
     def max_length(self):
         return self._max_length
 
+def train_on_batch(img_inputs_batch, cap_inputs_batch, mask_batch):
+    img_inputs_batch = np.asarray(list(img_inputs_batch), dtype=np.float32)
+    cap_inputs_batch = np.asarray(list(cap_inputs_batch), dtype=np.int32)
+    mask_batch = np.asarray(list(mask_batch), dtype=np.bool)
+    print(img_inputs_batch)
+    print("")
+    print(cap_inputs_batch)
+    print("")
+    print(mask_batch)
+    print("")
+
 def test():
     data_loader = DataLoader("test")
+    data_loader.load_data()
     train_queue = data_loader.train_queue
     print(train_queue)
+    while not train_queue.empty():
+        batch = train_queue.get()
+        print(batch)
+        train_on_batch(*batch[:-1])
+        print("")
+        print("")
+        print("")
+        # train_on_batch(batch[:-1])
     # data_loader.data_queue(data_loader.train_data)
 
 if __name__ == "__main__":
